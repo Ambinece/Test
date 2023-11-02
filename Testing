@@ -1,0 +1,2 @@
+game.ReplicatedStorage.RepressedMemoriesMap.Parent = game.Workspace
+game.ReplicatedStorage.RepressedMemoriesNPC.Parent = game.Workspace
