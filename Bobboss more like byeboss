@@ -1,0 +1,34 @@
+local isRunning = false
+
+-- Function to start the loop
+local function startLoop()
+    isRunning = true
+    while isRunning do
+        workspace:WaitForChild("bobBoss"):WaitForChild("DamageEvent"):FireServer()
+        wait()
+    end
+end
+
+-- Function to stop the loop
+local function stopLoop()
+    isRunning = false
+end
+
+-- Example GUI setup
+local player = game.Players.LocalPlayer
+local gui = Instance.new("ScreenGui")
+gui.Parent = player.PlayerGui
+
+local startButton = Instance.new("TextButton")
+startButton.Parent = gui
+startButton.Position = UDim2.new(0, 0, 0, 0)
+startButton.Size = UDim2.new(0, 100, 0, 50)
+startButton.Text = "Start"
+startButton.MouseButton1Click:Connect(startLoop)
+
+local stopButton = Instance.new("TextButton")
+stopButton.Parent = gui
+stopButton.Position = UDim2.new(0, 110, 0, 0)
+stopButton.Size = UDim2.new(0, 100, 0, 50)
+stopButton.Text = "Stop"
+stopButton.MouseButton1Click:Connect(stopLoop)
