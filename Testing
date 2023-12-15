@@ -1,2 +1,15 @@
-game.ReplicatedStorage.RepressedMemoriesMap.Parent = game.Workspace
-game.ReplicatedStorage.RepressedMemoriesNPC.Parent = game.Workspace
+local Players = game:GetService("Players")
+
+-- Assume you have a reference to the local player
+local player = Players.LocalPlayer
+
+-- Function to execute when health changes
+local function onHealthChanged(health)
+    if health <= 0 then
+        -- Code to execute when health is 0
+        game:GetService("ReplicatedStorage"):WaitForChild("SharedContainer"):WaitForChild("Remotes"):WaitForChild("Game"):WaitForChild("Respawn"):FireServer()
+    end
+end
+
+-- Connect the function to the HealthChanged event
+player.Character:WaitForChild("Humanoid").HealthChanged:Connect(onHealthChanged)
