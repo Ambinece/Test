@@ -1,6 +1,3 @@
--- Local-only removal of other Players
--- Place this in StarterPlayerScripts
-
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 
