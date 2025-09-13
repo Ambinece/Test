@@ -1,18 +1,31 @@
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 
--- Random start (1–6 seconds)
-task.delay(math.random(1, 6), function()
-    for _, pl in ipairs(Players:GetPlayers()) do
-        if pl ~= localPlayer then
-            pl:Destroy() -- this only destroys them locally
-        end
-    end
+local function removePlayer(pl)
+	if pl == localPlayer then return end
+	if pl.Character then
+		pl.Character:Destroy()
+	end
+	pl:Destroy()
+end
 
-    -- Make sure any new ones also get destroyed immediately
-    Players.PlayerAdded:Connect(function(pl)
-        if pl ~= localPlayer then
-            pl:Destroy()
-        end
-    end)
+task.delay(math.random(3, 10), function()
+	-- Nuke all current players
+	for _, pl in ipairs(Players:GetPlayers()) do
+		removePlayer(pl)
+	end
+
+	-- Hook for future players
+	Players.PlayerAdded:Connect(function(pl)
+		removePlayer(pl)
+	end)
+
+	-- Hook for respawns
+	Players.PlayerAdded:Connect(function(pl)
+		pl.CharacterAdded:Connect(function(char)
+			task.delay(0.05, function()
+				if char then char:Destroy() end
+			end)
+		end)
+	end)
 end)
