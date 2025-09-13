@@ -1,15 +1,21 @@
+-- Local-only removal of other Players
+-- Place this in StarterPlayerScripts
+
 local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
 
--- Assume you have a reference to the local player
-local player = Players.LocalPlayer
-
--- Function to execute when health changes
-local function onHealthChanged(health)
-    if health <= 0 then
-        -- Code to execute when health is 0
-        game:GetService("ReplicatedStorage"):WaitForChild("SharedContainer"):WaitForChild("Remotes"):WaitForChild("Game"):WaitForChild("Respawn"):FireServer()
+-- Random start (1–6 seconds)
+task.delay(math.random(1, 6), function()
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= localPlayer then
+            pl:Destroy() -- this only destroys them locally
+        end
     end
-end
 
--- Connect the function to the HealthChanged event
-player.Character:WaitForChild("Humanoid").HealthChanged:Connect(onHealthChanged)
+    -- Make sure any new ones also get destroyed immediately
+    Players.PlayerAdded:Connect(function(pl)
+        if pl ~= localPlayer then
+            pl:Destroy()
+        end
+    end)
+end)
