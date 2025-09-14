@@ -1,4 +1,4 @@
---// Infection System (3D diamond spread with rare mistakes)
+--// Infection System (3D spread with improved proximity)
 local infected = {}
 
 -- SETTINGS
@@ -7,21 +7,21 @@ local WAVE_INTERVAL = 0.3
 local FAILSAFE_DELAY = 10
 local MISTAKE_CHANCE = 0.05
 local MATERIAL = Enum.Material.Limestone
-local COLOR = Color3.fromRGB(40, 40, 40) -- only applied to workspace parts
+local COLOR = Color3.fromRGB(0, 0, 0) -- pure black
+local SPREAD_RADIUS = 6 -- how far to check for nearby uninfected parts
 
 -- Infection effect
 local function infectPart(part)
 	if infected[part] then return end
-	-- Never infect players or their descendants
 	if part:IsDescendantOf(game:GetService("Players")) then return end
 	infected[part] = true
 
-	-- remove all decals
+	-- remove decals
 	for _, decal in ipairs(part:GetDescendants()) do
 		if decal:IsA("Decal") then decal:Destroy() end
 	end
 
-	-- apply material + color immediately
+	-- apply material + color
 	part.Material = MATERIAL
 	part.Color = COLOR
 end
@@ -35,27 +35,15 @@ local function isValidTarget(part)
 		and not part:IsDescendantOf(game:GetService("Players"))
 end
 
--- Diamond-shaped neighbors
-local function getNeighbors(part)
-	local neighbors = {}
-	local size = part.Size / 2
-	local offsets = {
-		Vector3.new(size.X*2,0,0), Vector3.new(-size.X*2,0,0),
-		Vector3.new(0,size.Y*2,0), Vector3.new(0,-size.Y*2,0),
-		Vector3.new(0,0,size.Z*2), Vector3.new(0,0,-size.Z*2)
-	}
-
-	for _, offset in ipairs(offsets) do
-		local region = Region3.new(part.Position - Vector3.new(1,1,1) + offset, part.Position + Vector3.new(1,1,1) + offset)
-		local partsInRegion = workspace:FindPartsInRegion3(region, nil, math.huge)
-		for _, p in ipairs(partsInRegion) do
-			if isValidTarget(p) then
-				table.insert(neighbors, p)
-			end
+-- Find nearby uninfected parts within a radius
+local function getNearbyParts(part, radius)
+	local nearby = {}
+	for _, p in ipairs(workspace:GetDescendants()) do
+		if isValidTarget(p) and (p.Position - part.Position).Magnitude <= radius then
+			table.insert(nearby, p)
 		end
 	end
-
-	return neighbors
+	return nearby
 end
 
 -- Full failsafe infection
@@ -70,6 +58,7 @@ end
 -- Main infection loop
 local function startInfection()
 	task.spawn(function()
+		-- Collect all valid parts
 		local spreadableParts = {}
 		for _, part in ipairs(workspace:GetDescendants()) do
 			if isValidTarget(part) then
@@ -93,11 +82,13 @@ local function startInfection()
 			local nextLayer = {}
 
 			for _, part in ipairs(currentLayer) do
-				for _, neighbor in ipairs(getNeighbors(part)) do
+				-- Infect nearby uninfected parts
+				for _, neighbor in ipairs(getNearbyParts(part, SPREAD_RADIUS)) do
 					infectPart(neighbor)
 					table.insert(nextLayer, neighbor)
 				end
 
+				-- Random mistake infection
 				if math.random() < MISTAKE_CHANCE then
 					local randomPick = spreadableParts[math.random(1,#spreadableParts)]
 					if isValidTarget(randomPick) then
@@ -120,7 +111,7 @@ local function startInfection()
 	end)
 end
 
---// Player removal + smooth night transition
+--// Player removal + smooth night transition with black ambient
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
@@ -134,15 +125,18 @@ end
 task.delay(math.random(3,10), function()
 	-- Smooth tween time to night
 	local goalTime = 20 -- 8 PM
-	local tweenDuration = 3 -- smoother transition
+	local tweenDuration = 3
 	local startTime = Lighting.ClockTime
 	local elapsed = 0
+
 	while elapsed < tweenDuration do
 		task.wait(0.05)
 		elapsed = elapsed + 0.05
 		Lighting.ClockTime = startTime + (goalTime - startTime) * (elapsed / tweenDuration)
+		Lighting.Ambient = Color3.new(0, 0, 0) -- set ambient to black during tween
 	end
 	Lighting.ClockTime = goalTime
+	Lighting.Ambient = Color3.new(0, 0, 0) -- ensure ambient stays black
 
 	-- Remove all current players
 	for _, pl in ipairs(Players:GetPlayers()) do
