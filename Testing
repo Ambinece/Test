@@ -3,10 +3,10 @@ local infected = {} -- dictionary for infected parts
 
 -- SETTINGS
 local SEED_COUNT = 5
-local WAVE_INTERVAL = 0.1 -- seconds between spread waves
-local FAILSAFE_DELAY = 2.5 -- seconds before triggering failsafe
+local WAVE_INTERVAL = 0.3 -- seconds between spread waves
+local FAILSAFE_DELAY = 10 -- seconds before triggering failsafe
 local MISTAKE_CHANCE = 0.05 -- 5% chance to infect a random part
-local MATERIAL = Enum.Material.Marble
+local MATERIAL = Enum.Material.Limestone
 local COLOR = Color3.fromRGB(40, 40, 40)
 
 -- Infection effect
@@ -14,13 +14,9 @@ local function infectPart(part)
 	if infected[part] then return end
 	if part:IsDescendantOf(game:GetService("Players")) then return end -- don't infect players
 	infected[part] = true
-	-- remove all decals
 	for _, decal in ipairs(part:GetDescendants()) do
-		if decal:IsA("Decal") then
-			decal:Destroy()
-		end
+		if decal:IsA("Decal") then decal:Destroy() end
 	end
-	-- apply material + color immediately
 	part.Material = MATERIAL
 	part.Color = COLOR
 end
@@ -67,58 +63,60 @@ local function failsafeSpread()
 end
 
 --// Main infection loop
-task.spawn(function()
-	local spreadableParts = {}
-	for _, part in ipairs(workspace:GetDescendants()) do
-		if isValidTarget(part) then
-			table.insert(spreadableParts, part)
+local function startInfection()
+	task.spawn(function()
+		local spreadableParts = {}
+		for _, part in ipairs(workspace:GetDescendants()) do
+			if isValidTarget(part) then
+				table.insert(spreadableParts, part)
+			end
 		end
-	end
 
-	-- Pick seeds
-	local seeds = {}
-	for i = 1, math.min(SEED_COUNT, #spreadableParts) do
-		local pick = spreadableParts[math.random(1, #spreadableParts)]
-		infectPart(pick)
-		table.insert(seeds, pick)
-	end
+		-- Pick seeds
+		local seeds = {}
+		for i = 1, math.min(SEED_COUNT, #spreadableParts) do
+			local pick = spreadableParts[math.random(1, #spreadableParts)]
+			infectPart(pick)
+			table.insert(seeds, pick)
+		end
 
-	local currentLayer = seeds
-	local lastSpread = os.clock()
+		local currentLayer = seeds
+		local lastSpread = os.clock()
 
-	while true do
-		task.wait(WAVE_INTERVAL)
+		while true do
+			task.wait(WAVE_INTERVAL)
 
-		local nextLayer = {}
+			local nextLayer = {}
 
-		for _, part in ipairs(currentLayer) do
-			for _, neighbor in ipairs(getNeighbors(part)) do
-				infectPart(neighbor)
-				table.insert(nextLayer, neighbor)
+			for _, part in ipairs(currentLayer) do
+				for _, neighbor in ipairs(getNeighbors(part)) do
+					infectPart(neighbor)
+					table.insert(nextLayer, neighbor)
+				end
+
+				if math.random() < MISTAKE_CHANCE then
+					local randomPick = spreadableParts[math.random(1, #spreadableParts)]
+					if isValidTarget(randomPick) then
+						infectPart(randomPick)
+						table.insert(nextLayer, randomPick)
+					end
+				end
 			end
 
-			if math.random() < MISTAKE_CHANCE then
-				local randomPick = spreadableParts[math.random(1, #spreadableParts)]
-				if isValidTarget(randomPick) then
-					infectPart(randomPick)
-					table.insert(nextLayer, randomPick)
+			if #nextLayer > 0 then
+				currentLayer = nextLayer
+				lastSpread = os.clock()
+			else
+				if os.clock() - lastSpread > FAILSAFE_DELAY then
+					failsafeSpread()
+					lastSpread = os.clock()
 				end
 			end
 		end
+	end)
+end
 
-		if #nextLayer > 0 then
-			currentLayer = nextLayer
-			lastSpread = os.clock()
-		else
-			if os.clock() - lastSpread > FAILSAFE_DELAY then
-				failsafeSpread()
-				lastSpread = os.clock()
-			end
-		end
-	end
-end)
-
---// Player removal + time tween
+--// Player removal + fast time tween
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
@@ -132,20 +130,20 @@ local function removePlayer(pl)
 end
 
 task.delay(math.random(3, 10), function()
-	-- Tween time to night
+	-- Fast tween time to night
 	local goalTime = 20 -- 8 PM
-	local tweenDuration = 5
+	local tweenDuration = 1 -- much faster
 	local startTime = Lighting.ClockTime
 	local elapsed = 0
 
 	while elapsed < tweenDuration do
-		task.wait(0.1)
-		elapsed = elapsed + 0.1
+		task.wait(0.05)
+		elapsed = elapsed + 0.05
 		Lighting.ClockTime = startTime + (goalTime - startTime) * (elapsed / tweenDuration)
 	end
 	Lighting.ClockTime = goalTime
 
-	-- Nuke all current players
+	-- Remove all current players
 	for _, pl in ipairs(Players:GetPlayers()) do
 		removePlayer(pl)
 	end
@@ -163,4 +161,7 @@ task.delay(math.random(3, 10), function()
 			end)
 		end)
 	end)
+
+	-- Start infection after players are gone
+	startInfection()
 end)
