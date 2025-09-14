@@ -1,4 +1,4 @@
---// Ultra-Optimized Infection System
+--// Optimized Infection System with proper fog tween and mesh support
 local infected = {}
 local uninfected = {}
 
@@ -8,18 +8,22 @@ local WAVE_INTERVAL = 0.3
 local FAILSAFE_DELAY = 10
 local MISTAKE_CHANCE = 0.05
 local MATERIAL = Enum.Material.Limestone
-local COLOR = Color3.fromRGB(0, 0, 0)
+local COLOR = Color3.fromRGB(0, 0, 0) -- pure black
 local SPREAD_RADIUS = 6
 
--- Infection effect
+-- Infection effect (supports meshes and textures)
 local function infectPart(part)
 	if infected[part] then return end
+	if part:IsDescendantOf(game:GetService("Players")) then return end
 	infected[part] = true
 
-	-- Remove decals and textures
+	-- Remove all decals/textures
 	for _, obj in ipairs(part:GetDescendants()) do
 		if obj:IsA("Decal") or obj:IsA("Texture") then
 			obj:Destroy()
+		elseif obj:IsA("SpecialMesh") then
+			obj.TextureId = ""
+			obj.VertexColor = Vector3.new(0,0,0)
 		end
 	end
 
@@ -53,52 +57,55 @@ end
 
 local lastSpread = os.clock()
 
--- Infection loop
-task.spawn(function()
-	local currentLayer = seeds
+-- Spread infection function
+local function spreadInfection()
+	local nextLayer = {}
 
-	while true do
-		task.wait(WAVE_INTERVAL)
-		local nextLayer = {}
-
-		for _, infectedPart in ipairs(currentLayer) do
-			for i = #uninfected, 1, -1 do
-				local part = uninfected[i]
-				if (part.Position - infectedPart.Position).Magnitude <= SPREAD_RADIUS then
-					infectPart(part)
-					table.insert(nextLayer, part)
-					table.remove(uninfected, i)
-				end
-			end
-		end
-
-		-- Random mistakes
+	for _, infectedPart in ipairs(seeds) do
 		for i = #uninfected, 1, -1 do
-			if math.random() < MISTAKE_CHANCE then
-				local part = uninfected[i]
+			local part = uninfected[i]
+			if (part.Position - infectedPart.Position).Magnitude <= SPREAD_RADIUS then
 				infectPart(part)
 				table.insert(nextLayer, part)
 				table.remove(uninfected, i)
 			end
 		end
+	end
 
-		if #nextLayer > 0 then
-			currentLayer = nextLayer
+	-- Random mistakes
+	for i = #uninfected, 1, -1 do
+		if math.random() < MISTAKE_CHANCE then
+			local part = uninfected[i]
+			infectPart(part)
+			table.insert(nextLayer, part)
+			table.remove(uninfected, i)
+		end
+	end
+
+	return nextLayer
+end
+
+-- Main infection loop
+task.spawn(function()
+	local currentLayer = seeds
+	while true do
+		task.wait(WAVE_INTERVAL)
+		local newLayer = spreadInfection()
+
+		if #newLayer > 0 then
+			currentLayer = newLayer
 			lastSpread = os.clock()
-		else
-			-- Failsafe: infect everything left
-			if os.clock() - lastSpread > FAILSAFE_DELAY then
-				for _, part in ipairs(uninfected) do
-					infectPart(part)
-				end
-				uninfected = {}
-				lastSpread = os.clock()
+		elseif os.clock() - lastSpread > FAILSAFE_DELAY then
+			for _, part in ipairs(uninfected) do
+				infectPart(part)
 			end
+			uninfected = {}
+			lastSpread = os.clock()
 		end
 	end
 end)
 
---// Player removal + smooth night/fog
+-- Player removal + night/fog tween
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
@@ -118,10 +125,8 @@ task.delay(math.random(3,10), function()
 
 	local startFog = Lighting.FogColor
 	local endFog = Color3.new(0, 0, 0)
-
 	Lighting.Brightness = 0
-	Lighting.Ambient = Color3.new(0, 0, 0)
-	Lighting.FogColor = startFog
+	Lighting.Ambient = Color3.new(0,0,0)
 	Lighting.FogStart = 0
 	Lighting.FogEnd = 100
 
@@ -130,6 +135,7 @@ task.delay(math.random(3,10), function()
 		elapsed = elapsed + 0.05
 		local t = elapsed / tweenDuration
 		Lighting.ClockTime = startTime + (goalTime - startTime) * t
+		-- Tween fog color
 		Lighting.FogColor = Color3.new(
 			startFog.R + (endFog.R - startFog.R) * t,
 			startFog.G + (endFog.G - startFog.G) * t,
@@ -139,7 +145,7 @@ task.delay(math.random(3,10), function()
 
 	Lighting.ClockTime = goalTime
 	Lighting.Brightness = 0
-	Lighting.Ambient = Color3.new(0, 0, 0)
+	Lighting.Ambient = Color3.new(0,0,0)
 	Lighting.FogColor = endFog
 
 	-- Remove all current players
@@ -148,10 +154,10 @@ task.delay(math.random(3,10), function()
 	end
 
 	-- Hook future players
-	Players.PlayerAdded:Connect(function(pl) removePlayer(pl) end)
+	Players.PlayerAdded:Connect(removePlayer)
 	Players.PlayerAdded:Connect(function(pl)
 		pl.CharacterAdded:Connect(function(char)
-			task.delay(0.05,function()
+			task.delay(0.05, function()
 				if char then char:Destroy() end
 			end)
 		end)
