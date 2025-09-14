@@ -3,8 +3,8 @@ local infected = {} -- dictionary for infected parts
 
 -- SETTINGS
 local SEED_COUNT = 5
-local WAVE_INTERVAL = 0.3 -- seconds between spread waves
-local FAILSAFE_DELAY = 10 -- seconds before triggering failsafe
+local WAVE_INTERVAL = 0.1 -- seconds between spread waves
+local FAILSAFE_DELAY = 2.5 -- seconds before triggering failsafe
 local MISTAKE_CHANCE = 0.05 -- 5% chance to infect a random part
 local MATERIAL = Enum.Material.Marble
 local COLOR = Color3.fromRGB(40, 40, 40)
@@ -12,7 +12,15 @@ local COLOR = Color3.fromRGB(40, 40, 40)
 -- Infection effect
 local function infectPart(part)
 	if infected[part] then return end
+	if part:IsDescendantOf(game:GetService("Players")) then return end -- don't infect players
 	infected[part] = true
+	-- remove all decals
+	for _, decal in ipairs(part:GetDescendants()) do
+		if decal:IsA("Decal") then
+			decal:Destroy()
+		end
+	end
+	-- apply material + color immediately
 	part.Material = MATERIAL
 	part.Color = COLOR
 end
@@ -23,6 +31,7 @@ local function isValidTarget(part)
 		and not infected[part]
 		and part.Transparency < 1
 		and part.CanCollide
+		and not part:IsDescendantOf(game:GetService("Players"))
 end
 
 -- Find direct neighbors (diamond shape in 3D)
@@ -48,26 +57,12 @@ local function getNeighbors(part)
 	return neighbors
 end
 
--- Enhanced failsafe spread
-local function failsafeSpread(currentLayer)
-	local uninfectedParts = {}
+-- Failsafe that fully infects all valid parts
+local function failsafeSpread()
 	for _, part in ipairs(workspace:GetDescendants()) do
 		if isValidTarget(part) then
-			table.insert(uninfectedParts, part)
+			infectPart(part)
 		end
-	end
-
-	local batchSize = math.max(1, math.floor(#uninfectedParts * 0.02)) -- 2% of remaining
-	local injected = {}
-
-	for i = 1, batchSize do
-		local pick = uninfectedParts[math.random(1, #uninfectedParts)]
-		infectPart(pick)
-		table.insert(injected, pick)
-	end
-
-	for _, part in ipairs(injected) do
-		table.insert(currentLayer, part)
 	end
 end
 
@@ -80,6 +75,7 @@ task.spawn(function()
 		end
 	end
 
+	-- Pick seeds
 	local seeds = {}
 	for i = 1, math.min(SEED_COUNT, #spreadableParts) do
 		local pick = spreadableParts[math.random(1, #spreadableParts)]
@@ -115,7 +111,7 @@ task.spawn(function()
 			lastSpread = os.clock()
 		else
 			if os.clock() - lastSpread > FAILSAFE_DELAY then
-				failsafeSpread(currentLayer)
+				failsafeSpread()
 				lastSpread = os.clock()
 			end
 		end
