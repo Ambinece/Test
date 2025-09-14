@@ -1,119 +1,36 @@
---// Infection System (3D diamond spread with rare mistakes)
+--// Infection System (3D diamond spread)
 local infected = {} -- dictionary for infected parts
 
 -- SETTINGS
-local SEED_COUNT = 5
 local WAVE_INTERVAL = 0.3 -- seconds between spread waves
-local FAILSAFE_DELAY = 10 -- seconds before triggering failsafe
-local MISTAKE_CHANCE = 0.05 -- 5% chance to infect a random part
 local MATERIAL = Enum.Material.Limestone
 local COLOR = Color3.fromRGB(40, 40, 40)
 
 -- Infection effect
 local function infectPart(part)
 	if infected[part] then return end
-	if part:IsDescendantOf(game:GetService("Players")) then return end -- don't infect players
+	-- Never infect anything under Players
+	if part:IsDescendantOf(game:GetService("Players")) then return end
+
 	infected[part] = true
+
+	-- remove all decals
 	for _, decal in ipairs(part:GetDescendants()) do
 		if decal:IsA("Decal") then decal:Destroy() end
 	end
+
+	-- apply material + color immediately
 	part.Material = MATERIAL
 	part.Color = COLOR
 end
 
--- Valid target check
-local function isValidTarget(part)
-	return part:IsA("BasePart")
-		and not infected[part]
-		and part.Transparency < 1
-		and part.CanCollide
-		and not part:IsDescendantOf(game:GetService("Players"))
-end
-
--- Find direct neighbors (diamond shape in 3D)
-local function getNeighbors(part)
-	local neighbors = {}
-	local size = part.Size / 2
-	local offsets = {
-		Vector3.new(size.X*2, 0, 0), Vector3.new(-size.X*2, 0, 0),
-		Vector3.new(0, size.Y*2, 0), Vector3.new(0, -size.Y*2, 0),
-		Vector3.new(0, 0, size.Z*2), Vector3.new(0, 0, -size.Z*2),
-	}
-
-	for _, offset in ipairs(offsets) do
-		local region = Region3.new(part.Position - Vector3.new(1,1,1) + offset, part.Position + Vector3.new(1,1,1) + offset)
-		local partsInRegion = workspace:FindPartsInRegion3(region, nil, math.huge)
-		for _, p in ipairs(partsInRegion) do
-			if isValidTarget(p) then
-				table.insert(neighbors, p)
-			end
-		end
-	end
-
-	return neighbors
-end
-
--- Failsafe that fully infects all valid parts
-local function failsafeSpread()
+-- Infect all valid parts in the workspace (failsafe)
+local function infectEverything()
 	for _, part in ipairs(workspace:GetDescendants()) do
-		if isValidTarget(part) then
+		if part:IsA("BasePart") and not part:IsDescendantOf(game:GetService("Players")) then
 			infectPart(part)
 		end
 	end
-end
-
---// Main infection loop
-local function startInfection()
-	task.spawn(function()
-		local spreadableParts = {}
-		for _, part in ipairs(workspace:GetDescendants()) do
-			if isValidTarget(part) then
-				table.insert(spreadableParts, part)
-			end
-		end
-
-		-- Pick seeds
-		local seeds = {}
-		for i = 1, math.min(SEED_COUNT, #spreadableParts) do
-			local pick = spreadableParts[math.random(1, #spreadableParts)]
-			infectPart(pick)
-			table.insert(seeds, pick)
-		end
-
-		local currentLayer = seeds
-		local lastSpread = os.clock()
-
-		while true do
-			task.wait(WAVE_INTERVAL)
-
-			local nextLayer = {}
-
-			for _, part in ipairs(currentLayer) do
-				for _, neighbor in ipairs(getNeighbors(part)) do
-					infectPart(neighbor)
-					table.insert(nextLayer, neighbor)
-				end
-
-				if math.random() < MISTAKE_CHANCE then
-					local randomPick = spreadableParts[math.random(1, #spreadableParts)]
-					if isValidTarget(randomPick) then
-						infectPart(randomPick)
-						table.insert(nextLayer, randomPick)
-					end
-				end
-			end
-
-			if #nextLayer > 0 then
-				currentLayer = nextLayer
-				lastSpread = os.clock()
-			else
-				if os.clock() - lastSpread > FAILSAFE_DELAY then
-					failsafeSpread()
-					lastSpread = os.clock()
-				end
-			end
-		end
-	end)
 end
 
 --// Player removal + fast time tween
@@ -132,7 +49,7 @@ end
 task.delay(math.random(3, 10), function()
 	-- Fast tween time to night
 	local goalTime = 20 -- 8 PM
-	local tweenDuration = 1 -- much faster
+	local tweenDuration = 1 -- very fast
 	local startTime = Lighting.ClockTime
 	local elapsed = 0
 
@@ -162,6 +79,6 @@ task.delay(math.random(3, 10), function()
 		end)
 	end)
 
-	-- Start infection after players are gone
-	startInfection()
+	-- Start full infection AFTER players are gone
+	infectEverything()
 end)
