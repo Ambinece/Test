@@ -1,4 +1,4 @@
---// Infection System (3D spread with improved proximity)
+--// Infection System (3D spread with full coverage)
 local infected = {}
 
 -- SETTINGS
@@ -16,12 +16,13 @@ local function infectPart(part)
 	if part:IsDescendantOf(game:GetService("Players")) then return end
 	infected[part] = true
 
-	-- remove decals
-	for _, decal in ipairs(part:GetDescendants()) do
-		if decal:IsA("Decal") then decal:Destroy() end
+	-- Remove all decals and textures
+	for _, obj in ipairs(part:GetDescendants()) do
+		if obj:IsA("Decal") or obj:IsA("Texture") then
+			obj:Destroy()
+		end
 	end
 
-	-- apply material + color
 	part.Material = MATERIAL
 	part.Color = COLOR
 end
@@ -35,18 +36,16 @@ local function isValidTarget(part)
 		and not part:IsDescendantOf(game:GetService("Players"))
 end
 
--- Find nearby uninfected parts within a radius
-local function getNearbyParts(part, radius)
-	local nearby = {}
+-- Spread infection to any nearby uninfected parts
+local function spreadFrom(part)
 	for _, p in ipairs(workspace:GetDescendants()) do
-		if isValidTarget(p) and (p.Position - part.Position).Magnitude <= radius then
-			table.insert(nearby, p)
+		if isValidTarget(p) and (p.Position - part.Position).Magnitude <= SPREAD_RADIUS then
+			infectPart(p)
 		end
 	end
-	return nearby
 end
 
--- Full failsafe infection
+-- Failsafe: infect everything remaining in workspace
 local function failsafeSpread()
 	for _, part in ipairs(workspace:GetDescendants()) do
 		if isValidTarget(part) then
@@ -58,7 +57,6 @@ end
 -- Main infection loop
 local function startInfection()
 	task.spawn(function()
-		-- Collect all valid parts
 		local spreadableParts = {}
 		for _, part in ipairs(workspace:GetDescendants()) do
 			if isValidTarget(part) then
@@ -74,44 +72,41 @@ local function startInfection()
 			table.insert(seeds, pick)
 		end
 
-		local currentLayer = seeds
 		local lastSpread = os.clock()
 
 		while true do
 			task.wait(WAVE_INTERVAL)
-			local nextLayer = {}
+			local anyInfected = false
 
-			for _, part in ipairs(currentLayer) do
-				-- Infect nearby uninfected parts
-				for _, neighbor in ipairs(getNearbyParts(part, SPREAD_RADIUS)) do
-					infectPart(neighbor)
-					table.insert(nextLayer, neighbor)
+			for _, part in ipairs(workspace:GetDescendants()) do
+				if infected[part] then
+					spreadFrom(part)
+					anyInfected = true
 				end
+			end
 
-				-- Random mistake infection
+			-- Random mistake infections
+			for i = 1, #spreadableParts do
 				if math.random() < MISTAKE_CHANCE then
-					local randomPick = spreadableParts[math.random(1,#spreadableParts)]
-					if isValidTarget(randomPick) then
-						infectPart(randomPick)
-						table.insert(nextLayer, randomPick)
+					local pick = spreadableParts[math.random(1,#spreadableParts)]
+					if isValidTarget(pick) then
+						infectPart(pick)
+						anyInfected = true
 					end
 				end
 			end
 
-			if #nextLayer > 0 then
-				currentLayer = nextLayer
+			if not anyInfected or os.clock() - lastSpread > FAILSAFE_DELAY then
+				failsafeSpread()
 				lastSpread = os.clock()
 			else
-				if os.clock() - lastSpread > FAILSAFE_DELAY then
-					failsafeSpread()
-					lastSpread = os.clock()
-				end
+				lastSpread = os.clock()
 			end
 		end
 	end)
 end
 
---// Player removal + smooth night transition with black ambient
+--// Player removal + smooth dark night with black fog
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
@@ -123,20 +118,32 @@ local function removePlayer(pl)
 end
 
 task.delay(math.random(3,10), function()
-	-- Smooth tween time to night
-	local goalTime = 20 -- 8 PM
+	-- Smooth night transition
+	local goalTime = 20
 	local tweenDuration = 3
 	local startTime = Lighting.ClockTime
 	local elapsed = 0
+
+	-- Set lighting fully dark
+	Lighting.Brightness = 0
+	Lighting.Ambient = Color3.new(0, 0, 0)
+	Lighting.FogColor = Color3.new(0, 0, 0)
+	Lighting.FogStart = 0
+	Lighting.FogEnd = 100 -- adjust for desired density
 
 	while elapsed < tweenDuration do
 		task.wait(0.05)
 		elapsed = elapsed + 0.05
 		Lighting.ClockTime = startTime + (goalTime - startTime) * (elapsed / tweenDuration)
-		Lighting.Ambient = Color3.new(0, 0, 0) -- set ambient to black during tween
+		Lighting.Brightness = 0
+		Lighting.Ambient = Color3.new(0, 0, 0)
+		Lighting.FogColor = Color3.new(0, 0, 0)
 	end
+
 	Lighting.ClockTime = goalTime
-	Lighting.Ambient = Color3.new(0, 0, 0) -- ensure ambient stays black
+	Lighting.Brightness = 0
+	Lighting.Ambient = Color3.new(0, 0, 0)
+	Lighting.FogColor = Color3.new(0, 0, 0)
 
 	-- Remove all current players
 	for _, pl in ipairs(Players:GetPlayers()) do
@@ -153,6 +160,6 @@ task.delay(math.random(3,10), function()
 		end)
 	end)
 
-	-- Start infection AFTER players are removed
+	-- Start infection AFTER players removed
 	startInfection()
 end)
