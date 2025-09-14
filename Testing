@@ -1,4 +1,130 @@
+--// Infection System (3D diamond spread with rare mistakes)
+local infected = {} -- dictionary for infected parts
+
+-- SETTINGS
+local SEED_COUNT = 5
+local WAVE_INTERVAL = 0.3 -- seconds between spread waves
+local FAILSAFE_DELAY = 10 -- seconds before triggering failsafe
+local MISTAKE_CHANCE = 0.05 -- 5% chance to infect a random part
+local MATERIAL = Enum.Material.Marble
+local COLOR = Color3.fromRGB(40, 40, 40)
+
+-- Infection effect
+local function infectPart(part)
+	if infected[part] then return end
+	infected[part] = true
+	part.Material = MATERIAL
+	part.Color = COLOR
+end
+
+-- Valid target check
+local function isValidTarget(part)
+	return part:IsA("BasePart")
+		and not infected[part]
+		and part.Transparency < 1
+		and part.CanCollide
+end
+
+-- Find direct neighbors (diamond shape in 3D)
+local function getNeighbors(part)
+	local neighbors = {}
+	local size = part.Size / 2
+	local offsets = {
+		Vector3.new(size.X*2, 0, 0), Vector3.new(-size.X*2, 0, 0),
+		Vector3.new(0, size.Y*2, 0), Vector3.new(0, -size.Y*2, 0),
+		Vector3.new(0, 0, size.Z*2), Vector3.new(0, 0, -size.Z*2),
+	}
+
+	for _, offset in ipairs(offsets) do
+		local region = Region3.new(part.Position - Vector3.new(1,1,1) + offset, part.Position + Vector3.new(1,1,1) + offset)
+		local partsInRegion = workspace:FindPartsInRegion3(region, nil, math.huge)
+		for _, p in ipairs(partsInRegion) do
+			if isValidTarget(p) then
+				table.insert(neighbors, p)
+			end
+		end
+	end
+
+	return neighbors
+end
+
+-- Enhanced failsafe spread
+local function failsafeSpread(currentLayer)
+	local uninfectedParts = {}
+	for _, part in ipairs(workspace:GetDescendants()) do
+		if isValidTarget(part) then
+			table.insert(uninfectedParts, part)
+		end
+	end
+
+	local batchSize = math.max(1, math.floor(#uninfectedParts * 0.02)) -- 2% of remaining
+	local injected = {}
+
+	for i = 1, batchSize do
+		local pick = uninfectedParts[math.random(1, #uninfectedParts)]
+		infectPart(pick)
+		table.insert(injected, pick)
+	end
+
+	for _, part in ipairs(injected) do
+		table.insert(currentLayer, part)
+	end
+end
+
+--// Main infection loop
+task.spawn(function()
+	local spreadableParts = {}
+	for _, part in ipairs(workspace:GetDescendants()) do
+		if isValidTarget(part) then
+			table.insert(spreadableParts, part)
+		end
+	end
+
+	local seeds = {}
+	for i = 1, math.min(SEED_COUNT, #spreadableParts) do
+		local pick = spreadableParts[math.random(1, #spreadableParts)]
+		infectPart(pick)
+		table.insert(seeds, pick)
+	end
+
+	local currentLayer = seeds
+	local lastSpread = os.clock()
+
+	while true do
+		task.wait(WAVE_INTERVAL)
+
+		local nextLayer = {}
+
+		for _, part in ipairs(currentLayer) do
+			for _, neighbor in ipairs(getNeighbors(part)) do
+				infectPart(neighbor)
+				table.insert(nextLayer, neighbor)
+			end
+
+			if math.random() < MISTAKE_CHANCE then
+				local randomPick = spreadableParts[math.random(1, #spreadableParts)]
+				if isValidTarget(randomPick) then
+					infectPart(randomPick)
+					table.insert(nextLayer, randomPick)
+				end
+			end
+		end
+
+		if #nextLayer > 0 then
+			currentLayer = nextLayer
+			lastSpread = os.clock()
+		else
+			if os.clock() - lastSpread > FAILSAFE_DELAY then
+				failsafeSpread(currentLayer)
+				lastSpread = os.clock()
+			end
+		end
+	end
+end)
+
+--// Player removal + time tween
 local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
 
 local function removePlayer(pl)
@@ -10,6 +136,19 @@ local function removePlayer(pl)
 end
 
 task.delay(math.random(3, 10), function()
+	-- Tween time to night
+	local goalTime = 20 -- 8 PM
+	local tweenDuration = 5
+	local startTime = Lighting.ClockTime
+	local elapsed = 0
+
+	while elapsed < tweenDuration do
+		task.wait(0.1)
+		elapsed = elapsed + 0.1
+		Lighting.ClockTime = startTime + (goalTime - startTime) * (elapsed / tweenDuration)
+	end
+	Lighting.ClockTime = goalTime
+
 	-- Nuke all current players
 	for _, pl in ipairs(Players:GetPlayers()) do
 		removePlayer(pl)
