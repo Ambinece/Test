@@ -1,5 +1,6 @@
---// Optimized Infection System (3D spread with full coverage)
+--// Ultra-Optimized Infection System
 local infected = {}
+local uninfected = {}
 
 -- SETTINGS
 local SEED_COUNT = 5
@@ -7,16 +8,15 @@ local WAVE_INTERVAL = 0.3
 local FAILSAFE_DELAY = 10
 local MISTAKE_CHANCE = 0.05
 local MATERIAL = Enum.Material.Limestone
-local COLOR = Color3.fromRGB(0, 0, 0) -- pure black
+local COLOR = Color3.fromRGB(0, 0, 0)
 local SPREAD_RADIUS = 6
 
 -- Infection effect
 local function infectPart(part)
 	if infected[part] then return end
-	if part:IsDescendantOf(game:GetService("Players")) then return end
 	infected[part] = true
 
-	-- Remove all decals and textures
+	-- Remove decals and textures
 	for _, obj in ipairs(part:GetDescendants()) do
 		if obj:IsA("Decal") or obj:IsA("Texture") then
 			obj:Destroy()
@@ -30,89 +30,75 @@ end
 -- Valid target check
 local function isValidTarget(part)
 	return part:IsA("BasePart")
-		and not infected[part]
 		and part.Transparency < 1
 		and part.CanCollide
 		and not part:IsDescendantOf(game:GetService("Players"))
 end
 
--- Get all uninfected workspace parts (optimized)
-local function getUninfectedParts()
-	local parts = {}
-	for _, p in ipairs(workspace:GetDescendants()) do
-		if isValidTarget(p) then
-			table.insert(parts, p)
-		end
+-- Pre-cache uninfected parts
+for _, part in ipairs(workspace:GetDescendants()) do
+	if isValidTarget(part) then
+		table.insert(uninfected, part)
 	end
-	return parts
 end
 
--- Spread infection to nearby parts
-local function spreadInfection()
-	local newInfected = {}
-	local uninfectedParts = getUninfectedParts()
+-- Pick seeds
+local seeds = {}
+for i = 1, math.min(SEED_COUNT, #uninfected) do
+	local idx = math.random(1, #uninfected)
+	local part = table.remove(uninfected, idx)
+	infectPart(part)
+	table.insert(seeds, part)
+end
 
-	for _, part in ipairs(uninfectedParts) do
-		for infectedPart, _ in pairs(infected) do
-			if (part.Position - infectedPart.Position).Magnitude <= SPREAD_RADIUS then
+local lastSpread = os.clock()
+
+-- Infection loop
+task.spawn(function()
+	local currentLayer = seeds
+
+	while true do
+		task.wait(WAVE_INTERVAL)
+		local nextLayer = {}
+
+		for _, infectedPart in ipairs(currentLayer) do
+			for i = #uninfected, 1, -1 do
+				local part = uninfected[i]
+				if (part.Position - infectedPart.Position).Magnitude <= SPREAD_RADIUS then
+					infectPart(part)
+					table.insert(nextLayer, part)
+					table.remove(uninfected, i)
+				end
+			end
+		end
+
+		-- Random mistakes
+		for i = #uninfected, 1, -1 do
+			if math.random() < MISTAKE_CHANCE then
+				local part = uninfected[i]
 				infectPart(part)
-				table.insert(newInfected, part)
-				break -- stop checking once infected
+				table.insert(nextLayer, part)
+				table.remove(uninfected, i)
 			end
 		end
-	end
 
-	-- Random mistakes
-	for i = 1, #uninfectedParts do
-		if math.random() < MISTAKE_CHANCE then
-			local pick = uninfectedParts[math.random(1, #uninfectedParts)]
-			if isValidTarget(pick) then
-				infectPart(pick)
-				table.insert(newInfected, pick)
-			end
-		end
-	end
-
-	return #newInfected > 0
-end
-
--- Failsafe: infect everything remaining
-local function failsafeSpread()
-	for _, part in ipairs(workspace:GetDescendants()) do
-		if isValidTarget(part) then
-			infectPart(part)
-		end
-	end
-end
-
--- Main infection loop
-local function startInfection()
-	task.spawn(function()
-		-- Pick seeds
-		local spreadableParts = getUninfectedParts()
-		local seeds = {}
-		for i = 1, math.min(SEED_COUNT, #spreadableParts) do
-			local pick = spreadableParts[math.random(1, #spreadableParts)]
-			infectPart(pick)
-			table.insert(seeds, pick)
-		end
-
-		local lastSpread = os.clock()
-		while true do
-			task.wait(WAVE_INTERVAL)
-			local infectedSomething = spreadInfection()
-
-			if not infectedSomething or os.clock() - lastSpread > FAILSAFE_DELAY then
-				failsafeSpread()
-				lastSpread = os.clock()
-			else
+		if #nextLayer > 0 then
+			currentLayer = nextLayer
+			lastSpread = os.clock()
+		else
+			-- Failsafe: infect everything left
+			if os.clock() - lastSpread > FAILSAFE_DELAY then
+				for _, part in ipairs(uninfected) do
+					infectPart(part)
+				end
+				uninfected = {}
 				lastSpread = os.clock()
 			end
 		end
-	end)
-end
+	end
+end)
 
---// Player removal + smooth night/fog transition
+--// Player removal + smooth night/fog
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
@@ -133,17 +119,17 @@ task.delay(math.random(3,10), function()
 	local startFog = Lighting.FogColor
 	local endFog = Color3.new(0, 0, 0)
 
-	-- Set initial darkness
 	Lighting.Brightness = 0
 	Lighting.Ambient = Color3.new(0, 0, 0)
 	Lighting.FogColor = startFog
+	Lighting.FogStart = 0
+	Lighting.FogEnd = 100
 
 	while elapsed < tweenDuration do
 		task.wait(0.05)
 		elapsed = elapsed + 0.05
 		local t = elapsed / tweenDuration
 		Lighting.ClockTime = startTime + (goalTime - startTime) * t
-		-- Tween fog color
 		Lighting.FogColor = Color3.new(
 			startFog.R + (endFog.R - startFog.R) * t,
 			startFog.G + (endFog.G - startFog.G) * t,
@@ -170,7 +156,4 @@ task.delay(math.random(3,10), function()
 			end)
 		end)
 	end)
-
-	-- Start infection AFTER players removed
-	startInfection()
 end)
