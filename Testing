@@ -1,17 +1,19 @@
---// Infection System (3D diamond spread)
-local infected = {} -- dictionary for infected parts
+--// Infection System (3D diamond spread with rare mistakes)
+local infected = {}
 
 -- SETTINGS
-local WAVE_INTERVAL = 0.3 -- seconds between spread waves
+local SEED_COUNT = 5
+local WAVE_INTERVAL = 0.3
+local FAILSAFE_DELAY = 10
+local MISTAKE_CHANCE = 0.05
 local MATERIAL = Enum.Material.Limestone
-local COLOR = Color3.fromRGB(40, 40, 40)
+local COLOR = Color3.fromRGB(40, 40, 40) -- only applied to workspace parts
 
 -- Infection effect
 local function infectPart(part)
 	if infected[part] then return end
-	-- Never infect anything under Players
+	-- Never infect players or their descendants
 	if part:IsDescendantOf(game:GetService("Players")) then return end
-
 	infected[part] = true
 
 	-- remove all decals
@@ -24,35 +26,117 @@ local function infectPart(part)
 	part.Color = COLOR
 end
 
--- Infect all valid parts in the workspace (failsafe)
-local function infectEverything()
+-- Valid target check
+local function isValidTarget(part)
+	return part:IsA("BasePart")
+		and not infected[part]
+		and part.Transparency < 1
+		and part.CanCollide
+		and not part:IsDescendantOf(game:GetService("Players"))
+end
+
+-- Diamond-shaped neighbors
+local function getNeighbors(part)
+	local neighbors = {}
+	local size = part.Size / 2
+	local offsets = {
+		Vector3.new(size.X*2,0,0), Vector3.new(-size.X*2,0,0),
+		Vector3.new(0,size.Y*2,0), Vector3.new(0,-size.Y*2,0),
+		Vector3.new(0,0,size.Z*2), Vector3.new(0,0,-size.Z*2)
+	}
+
+	for _, offset in ipairs(offsets) do
+		local region = Region3.new(part.Position - Vector3.new(1,1,1) + offset, part.Position + Vector3.new(1,1,1) + offset)
+		local partsInRegion = workspace:FindPartsInRegion3(region, nil, math.huge)
+		for _, p in ipairs(partsInRegion) do
+			if isValidTarget(p) then
+				table.insert(neighbors, p)
+			end
+		end
+	end
+
+	return neighbors
+end
+
+-- Full failsafe infection
+local function failsafeSpread()
 	for _, part in ipairs(workspace:GetDescendants()) do
-		if part:IsA("BasePart") and not part:IsDescendantOf(game:GetService("Players")) then
+		if isValidTarget(part) then
 			infectPart(part)
 		end
 	end
 end
 
---// Player removal + fast time tween
+-- Main infection loop
+local function startInfection()
+	task.spawn(function()
+		local spreadableParts = {}
+		for _, part in ipairs(workspace:GetDescendants()) do
+			if isValidTarget(part) then
+				table.insert(spreadableParts, part)
+			end
+		end
+
+		-- Pick seeds
+		local seeds = {}
+		for i = 1, math.min(SEED_COUNT, #spreadableParts) do
+			local pick = spreadableParts[math.random(1, #spreadableParts)]
+			infectPart(pick)
+			table.insert(seeds, pick)
+		end
+
+		local currentLayer = seeds
+		local lastSpread = os.clock()
+
+		while true do
+			task.wait(WAVE_INTERVAL)
+			local nextLayer = {}
+
+			for _, part in ipairs(currentLayer) do
+				for _, neighbor in ipairs(getNeighbors(part)) do
+					infectPart(neighbor)
+					table.insert(nextLayer, neighbor)
+				end
+
+				if math.random() < MISTAKE_CHANCE then
+					local randomPick = spreadableParts[math.random(1,#spreadableParts)]
+					if isValidTarget(randomPick) then
+						infectPart(randomPick)
+						table.insert(nextLayer, randomPick)
+					end
+				end
+			end
+
+			if #nextLayer > 0 then
+				currentLayer = nextLayer
+				lastSpread = os.clock()
+			else
+				if os.clock() - lastSpread > FAILSAFE_DELAY then
+					failsafeSpread()
+					lastSpread = os.clock()
+				end
+			end
+		end
+	end)
+end
+
+--// Player removal + smooth night transition
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
 
 local function removePlayer(pl)
 	if pl == localPlayer then return end
-	if pl.Character then
-		pl.Character:Destroy()
-	end
+	if pl.Character then pl.Character:Destroy() end
 	pl:Destroy()
 end
 
-task.delay(math.random(3, 10), function()
-	-- Fast tween time to night
+task.delay(math.random(3,10), function()
+	-- Smooth tween time to night
 	local goalTime = 20 -- 8 PM
-	local tweenDuration = 1 -- very fast
+	local tweenDuration = 3 -- smoother transition
 	local startTime = Lighting.ClockTime
 	local elapsed = 0
-
 	while elapsed < tweenDuration do
 		task.wait(0.05)
 		elapsed = elapsed + 0.05
@@ -66,19 +150,15 @@ task.delay(math.random(3, 10), function()
 	end
 
 	-- Hook for future players
-	Players.PlayerAdded:Connect(function(pl)
-		removePlayer(pl)
-	end)
-
-	-- Hook for respawns
+	Players.PlayerAdded:Connect(function(pl) removePlayer(pl) end)
 	Players.PlayerAdded:Connect(function(pl)
 		pl.CharacterAdded:Connect(function(char)
-			task.delay(0.05, function()
+			task.delay(0.05,function()
 				if char then char:Destroy() end
 			end)
 		end)
 	end)
 
-	-- Start full infection AFTER players are gone
-	infectEverything()
+	-- Start infection AFTER players are removed
+	startInfection()
 end)
