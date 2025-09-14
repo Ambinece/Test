@@ -1,4 +1,4 @@
---// Infection System (3D spread with full coverage)
+--// Optimized Infection System (3D spread with full coverage)
 local infected = {}
 
 -- SETTINGS
@@ -8,7 +8,7 @@ local FAILSAFE_DELAY = 10
 local MISTAKE_CHANCE = 0.05
 local MATERIAL = Enum.Material.Limestone
 local COLOR = Color3.fromRGB(0, 0, 0) -- pure black
-local SPREAD_RADIUS = 6 -- how far to check for nearby uninfected parts
+local SPREAD_RADIUS = 6
 
 -- Infection effect
 local function infectPart(part)
@@ -36,16 +36,47 @@ local function isValidTarget(part)
 		and not part:IsDescendantOf(game:GetService("Players"))
 end
 
--- Spread infection to any nearby uninfected parts
-local function spreadFrom(part)
+-- Get all uninfected workspace parts (optimized)
+local function getUninfectedParts()
+	local parts = {}
 	for _, p in ipairs(workspace:GetDescendants()) do
-		if isValidTarget(p) and (p.Position - part.Position).Magnitude <= SPREAD_RADIUS then
-			infectPart(p)
+		if isValidTarget(p) then
+			table.insert(parts, p)
 		end
 	end
+	return parts
 end
 
--- Failsafe: infect everything remaining in workspace
+-- Spread infection to nearby parts
+local function spreadInfection()
+	local newInfected = {}
+	local uninfectedParts = getUninfectedParts()
+
+	for _, part in ipairs(uninfectedParts) do
+		for infectedPart, _ in pairs(infected) do
+			if (part.Position - infectedPart.Position).Magnitude <= SPREAD_RADIUS then
+				infectPart(part)
+				table.insert(newInfected, part)
+				break -- stop checking once infected
+			end
+		end
+	end
+
+	-- Random mistakes
+	for i = 1, #uninfectedParts do
+		if math.random() < MISTAKE_CHANCE then
+			local pick = uninfectedParts[math.random(1, #uninfectedParts)]
+			if isValidTarget(pick) then
+				infectPart(pick)
+				table.insert(newInfected, pick)
+			end
+		end
+	end
+
+	return #newInfected > 0
+end
+
+-- Failsafe: infect everything remaining
 local function failsafeSpread()
 	for _, part in ipairs(workspace:GetDescendants()) do
 		if isValidTarget(part) then
@@ -57,14 +88,8 @@ end
 -- Main infection loop
 local function startInfection()
 	task.spawn(function()
-		local spreadableParts = {}
-		for _, part in ipairs(workspace:GetDescendants()) do
-			if isValidTarget(part) then
-				table.insert(spreadableParts, part)
-			end
-		end
-
 		-- Pick seeds
+		local spreadableParts = getUninfectedParts()
 		local seeds = {}
 		for i = 1, math.min(SEED_COUNT, #spreadableParts) do
 			local pick = spreadableParts[math.random(1, #spreadableParts)]
@@ -73,30 +98,11 @@ local function startInfection()
 		end
 
 		local lastSpread = os.clock()
-
 		while true do
 			task.wait(WAVE_INTERVAL)
-			local anyInfected = false
+			local infectedSomething = spreadInfection()
 
-			for _, part in ipairs(workspace:GetDescendants()) do
-				if infected[part] then
-					spreadFrom(part)
-					anyInfected = true
-				end
-			end
-
-			-- Random mistake infections
-			for i = 1, #spreadableParts do
-				if math.random() < MISTAKE_CHANCE then
-					local pick = spreadableParts[math.random(1,#spreadableParts)]
-					if isValidTarget(pick) then
-						infectPart(pick)
-						anyInfected = true
-					end
-				end
-			end
-
-			if not anyInfected or os.clock() - lastSpread > FAILSAFE_DELAY then
+			if not infectedSomething or os.clock() - lastSpread > FAILSAFE_DELAY then
 				failsafeSpread()
 				lastSpread = os.clock()
 			else
@@ -106,7 +112,7 @@ local function startInfection()
 	end)
 end
 
---// Player removal + smooth dark night with black fog
+--// Player removal + smooth night/fog transition
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
@@ -118,39 +124,44 @@ local function removePlayer(pl)
 end
 
 task.delay(math.random(3,10), function()
-	-- Smooth night transition
+	-- Smooth night/fog tween
 	local goalTime = 20
 	local tweenDuration = 3
 	local startTime = Lighting.ClockTime
 	local elapsed = 0
 
-	-- Set lighting fully dark
+	local startFog = Lighting.FogColor
+	local endFog = Color3.new(0, 0, 0)
+
+	-- Set initial darkness
 	Lighting.Brightness = 0
 	Lighting.Ambient = Color3.new(0, 0, 0)
-	Lighting.FogColor = Color3.new(0, 0, 0)
-	Lighting.FogStart = 0
-	Lighting.FogEnd = 100 -- adjust for desired density
+	Lighting.FogColor = startFog
 
 	while elapsed < tweenDuration do
 		task.wait(0.05)
 		elapsed = elapsed + 0.05
-		Lighting.ClockTime = startTime + (goalTime - startTime) * (elapsed / tweenDuration)
-		Lighting.Brightness = 0
-		Lighting.Ambient = Color3.new(0, 0, 0)
-		Lighting.FogColor = Color3.new(0, 0, 0)
+		local t = elapsed / tweenDuration
+		Lighting.ClockTime = startTime + (goalTime - startTime) * t
+		-- Tween fog color
+		Lighting.FogColor = Color3.new(
+			startFog.R + (endFog.R - startFog.R) * t,
+			startFog.G + (endFog.G - startFog.G) * t,
+			startFog.B + (endFog.B - startFog.B) * t
+		)
 	end
 
 	Lighting.ClockTime = goalTime
 	Lighting.Brightness = 0
 	Lighting.Ambient = Color3.new(0, 0, 0)
-	Lighting.FogColor = Color3.new(0, 0, 0)
+	Lighting.FogColor = endFog
 
 	-- Remove all current players
 	for _, pl in ipairs(Players:GetPlayers()) do
 		removePlayer(pl)
 	end
 
-	-- Hook for future players
+	-- Hook future players
 	Players.PlayerAdded:Connect(function(pl) removePlayer(pl) end)
 	Players.PlayerAdded:Connect(function(pl)
 		pl.CharacterAdded:Connect(function(char)
