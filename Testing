@@ -1,4 +1,4 @@
---// Optimized Infection System with proper fog tween and mesh support
+--// Optimized Infection System (no player infection, fog tween)
 local infected = {}
 local uninfected = {}
 
@@ -8,16 +8,15 @@ local WAVE_INTERVAL = 0.3
 local FAILSAFE_DELAY = 10
 local MISTAKE_CHANCE = 0.05
 local MATERIAL = Enum.Material.Limestone
-local COLOR = Color3.fromRGB(0, 0, 0) -- pure black
+local COLOR = Color3.fromRGB(0, 0, 0)
 local SPREAD_RADIUS = 6
 
--- Infection effect (supports meshes and textures)
+-- Infection effect
 local function infectPart(part)
 	if infected[part] then return end
-	if part:IsDescendantOf(game:GetService("Players")) then return end
 	infected[part] = true
 
-	-- Remove all decals/textures
+	-- Remove decals/textures and handle meshes
 	for _, obj in ipairs(part:GetDescendants()) do
 		if obj:IsA("Decal") or obj:IsA("Texture") then
 			obj:Destroy()
@@ -57,10 +56,9 @@ end
 
 local lastSpread = os.clock()
 
--- Spread infection function
+-- Spread infection
 local function spreadInfection()
 	local nextLayer = {}
-
 	for _, infectedPart in ipairs(seeds) do
 		for i = #uninfected, 1, -1 do
 			local part = uninfected[i]
@@ -91,7 +89,6 @@ task.spawn(function()
 	while true do
 		task.wait(WAVE_INTERVAL)
 		local newLayer = spreadInfection()
-
 		if #newLayer > 0 then
 			currentLayer = newLayer
 			lastSpread = os.clock()
@@ -105,7 +102,7 @@ task.spawn(function()
 	end
 end)
 
--- Player removal + night/fog tween
+-- Player removal + night/fog color tween
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
@@ -117,35 +114,22 @@ local function removePlayer(pl)
 end
 
 task.delay(math.random(3,10), function()
-	-- Smooth night/fog tween
-	local goalTime = 20
-	local tweenDuration = 3
-	local startTime = Lighting.ClockTime
+	-- Smooth FogColor tween
+	local startFog = Lighting.FogColor
+	local endFog = Color3.new(0,0,0)
+	local duration = 3
 	local elapsed = 0
 
-	local startFog = Lighting.FogColor
-	local endFog = Color3.new(0, 0, 0)
-	Lighting.Brightness = 0
-	Lighting.Ambient = Color3.new(0,0,0)
-	Lighting.FogStart = 0
-	Lighting.FogEnd = 100
-
-	while elapsed < tweenDuration do
+	while elapsed < duration do
 		task.wait(0.05)
 		elapsed = elapsed + 0.05
-		local t = elapsed / tweenDuration
-		Lighting.ClockTime = startTime + (goalTime - startTime) * t
-		-- Tween fog color
+		local t = elapsed / duration
 		Lighting.FogColor = Color3.new(
 			startFog.R + (endFog.R - startFog.R) * t,
 			startFog.G + (endFog.G - startFog.G) * t,
 			startFog.B + (endFog.B - startFog.B) * t
 		)
 	end
-
-	Lighting.ClockTime = goalTime
-	Lighting.Brightness = 0
-	Lighting.Ambient = Color3.new(0,0,0)
 	Lighting.FogColor = endFog
 
 	-- Remove all current players
@@ -157,7 +141,7 @@ task.delay(math.random(3,10), function()
 	Players.PlayerAdded:Connect(removePlayer)
 	Players.PlayerAdded:Connect(function(pl)
 		pl.CharacterAdded:Connect(function(char)
-			task.delay(0.05, function()
+			task.delay(0.05,function()
 				if char then char:Destroy() end
 			end)
 		end)
