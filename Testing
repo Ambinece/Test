@@ -34,7 +34,6 @@ end
 local function isValidTarget(part)
 	return part:IsA("BasePart")
 		and part.Transparency < 1
-		and part.CanCollide
 		and not part:IsDescendantOf(game:GetService("Players"))
 end
 
