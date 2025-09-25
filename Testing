@@ -5,11 +5,12 @@ local uninfected = {}
 -- SETTINGS
 local SEED_COUNT = 5
 local WAVE_INTERVAL = 0.3
-local FAILSAFE_DELAY = 10
-local MISTAKE_CHANCE = 0.05
-local MATERIAL = Enum.Material.Limestone
-local COLOR = Color3.fromRGB(0, 0, 0)
-local SPREAD_RADIUS = 6
+local FAILSAFE_DELAY = 5
+local MISTAKE_CHANCE = 0.1
+local MATERIAL = Enum.Material.ForceField
+local COLOR = Color3.fromRGB(20, 0, 0)
+local SPREAD_RADIUS = 3
+local TRANSPARENCY = -4
 
 -- Infection effect
 local function infectPart(part)
@@ -28,6 +29,7 @@ local function infectPart(part)
 
 	part.Material = MATERIAL
 	part.Color = COLOR
+	part.Transparency = TRANSPARENCY
 end
 
 -- Valid target check
